@@ -13,34 +13,26 @@ import java.security.cert.X509Certificate
 import java.util.*
 import javax.net.ssl.*
 
-fun getTrustfulHttpsConnection(serverUrl: URL): HttpsURLConnection {
+fun createHttpsConnection(sslContext: SSLContext, serverUrl: URL): HttpsURLConnection {
     return (serverUrl.openConnection() as HttpsURLConnection).apply {
         hostnameVerifier = HostnameVerifier { _, _ -> true }
-        sslSocketFactory = getTrustfulSslContext().socketFactory
+        sslSocketFactory = sslContext.socketFactory
     }
 }
 
-fun getTrustfulSslSocket(host: String, port: Int): SSLSocket {
-    val clientSslContext = getTrustfulSslContext()
-    return clientSslContext.socketFactory.createSocket(host, port) as SSLSocket
-}
+fun createSslSocket(sslContext: SSLContext, serverUrl: URL): SSLSocket =
+    sslContext.socketFactory.createSocket(serverUrl.host, serverUrl.port) as SSLSocket
 
-fun getTrustfulSslContext(): SSLContext {
+fun createSslContext(): SSLContext {
     return SSLContext.getInstance("SSL").apply {
         init(null, arrayOf(EmptyX509TrustManager()), null)
     }
 }
 
-fun getSecureSslContext(keyStorePath: String, password: String): SSLContext {
-    val keyStoreStream = getResourceStream(keyStorePath)
-    val keyStorePassword = password.toCharArray()
-
-    val keyStore = KeyStore.getInstance("BKS", BouncyCastleProvider.PROVIDER_NAME)
-    keyStore.load(keyStoreStream, keyStorePassword)
-
+fun createSslContext(keyStore: KeyStore, password: String): SSLContext {
     val algorithm = KeyManagerFactory.getDefaultAlgorithm()
     val kmf = KeyManagerFactory.getInstance(algorithm)
-    kmf.init(keyStore, keyStorePassword)
+    kmf.init(keyStore, password.toCharArray())
 
     val tmf = TrustManagerFactory.getInstance(algorithm)
     tmf.init(keyStore)
@@ -50,12 +42,27 @@ fun getSecureSslContext(keyStorePath: String, password: String): SSLContext {
     }
 }
 
-fun getCertificates(certificatePath: String): String {
-    val certificateStream = getResourceStream(certificatePath)
-    return String(certificateStream.readBytes()).replace("\r", "")
+fun createBksKeyStore(password: String): KeyStore {
+    val keyStore = KeyStore.getInstance("BKS", BouncyCastleProvider.PROVIDER_NAME)
+    keyStore.load(null, password.toCharArray())
+    return keyStore
 }
 
-private fun getResourceStream(path: String): InputStream {
+fun loadBksKeyStore(keyStorePath: String, password: String): KeyStore {
+    val keyStore = KeyStore.getInstance("BKS", BouncyCastleProvider.PROVIDER_NAME)
+    getResourceStream(keyStorePath).use { stream ->
+        keyStore.load(stream, password.toCharArray())
+    }
+    return keyStore
+}
+
+fun loadCertificate(certificatePath: String): String {
+    return getResourceStream(certificatePath).use { stream ->
+        String(stream.readBytes()).replace("\r", "")
+    }
+}
+
+fun getResourceStream(path: String): InputStream {
     val classLoader = Thread.currentThread().contextClassLoader!!
     return classLoader.getResourceAsStream(path)
 }
